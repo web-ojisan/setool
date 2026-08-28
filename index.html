@@ -182,61 +182,36 @@
     color:#101223;
   }
 
-  /* ---------- BGM list ---------- */
-  .bgm-list{ display:flex; flex-direction:column; gap:10px; }
-
-  .bgm-row{
-    display:flex;
-    align-items:center;
-    gap:12px;
-    background: var(--panel-light);
-    border:1px solid var(--line);
-    border-radius: 12px;
-    padding: 10px 12px;
-  }
-
-  .bgm-info{ flex:1; min-width:0; }
-  .bgm-name{ font-size:13px; font-weight:600; }
-  .bgm-sub{ font-size:11px; color:var(--text-dim); font-family: var(--font-mono); margin-top:2px; }
-
-  .viz{ display:flex; align-items:flex-end; gap:2px; height:16px; width:26px; flex-shrink:0; }
-  .viz i{
-    display:block; width:3px; background: var(--accent-cyan);
-    border-radius:1px; height:20%;
-    opacity:0.35;
-  }
-  .bgm-row.playing .viz i{ opacity:1; animation: bounce 0.9s ease-in-out infinite; }
-  .bgm-row.playing .viz i:nth-child(1){ animation-delay: -0.6s; }
-  .bgm-row.playing .viz i:nth-child(2){ animation-delay: -0.3s; }
-  .bgm-row.playing .viz i:nth-child(3){ animation-delay: -0.9s; }
-  .bgm-row.playing .viz i:nth-child(4){ animation-delay: -0.15s; }
-  @keyframes bounce{
-    0%,100%{ height:20%; }
-    50%{ height:100%; }
+  /* ---------- BGM list (2カラム / 曲名そのものが再生停止ボタン) ---------- */
+  .bgm-list{
+    display:grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap:10px;
   }
 
   .bgm-btn{
     border:none;
     cursor:pointer;
-    font-family: var(--font-mono);
+    font-family: var(--font-body);
     font-weight:600;
-    font-size:11px;
-    letter-spacing:1px;
-    padding: 8px 14px;
-    border-radius: 10px;
+    font-size:13px;
+    letter-spacing:0.3px;
+    padding: 15px 10px;
+    border-radius: 12px;
     color:#101223;
     background: var(--accent-amber);
-    box-shadow: 0 3px 0 #b3893c;
-    transition: transform .06s ease, box-shadow .06s ease;
-    flex-shrink:0;
+    box-shadow: 0 3px 0 #b3893c, inset 0 1px 1px rgba(255,255,255,0.4);
+    transition: transform .06s ease, box-shadow .06s ease, background .12s ease, color .12s ease;
+    user-select:none;
+    text-align:center;
   }
   .bgm-btn:active{ transform: translateY(2px); box-shadow: 0 1px 0 #b3893c; }
-  .bgm-btn.is-playing{ background: var(--accent-magenta); box-shadow: 0 3px 0 #b23a72; }
-
-  /* ---------- Unlock hint ---------- */
-  @media (prefers-reduced-motion: reduce){
-    .bgm-row.playing .viz i{ animation:none; height:70%; }
+  .bgm-btn.is-playing{
+    background: var(--accent-magenta);
+    color:#fff;
+    box-shadow: 0 3px 0 #b23a72, inset 0 1px 1px rgba(255,255,255,0.3);
   }
+  .bgm-btn.is-playing:active{ box-shadow: 0 1px 0 #b23a72; }
 </style>
 </head>
 <body>
@@ -564,33 +539,24 @@
       tempo: 128,
       notes: [523,659,784,659, 523,659,784,987, 880,784,659,523, 587,659,784,659],
       wave: "square"
-    },
-    bgmB: { // チル
-      tempo: 88,
-      notes: [440,523,392,349, 330,392,440,523, 349,392,440,392],
-      wave: "triangle"
     }
   };
 
   /* ---------- BGM (mp3ループ再生) ---------- */
   const BGM_FILES = {
-    attention1: "bgm/attention1.mp3",
     attention2: "bgm/attention2.mp3",
     dq2tower:   "bgm/dq2tower.mp3"
   };
 
   const BGM_LIST = [
-    {id:"bgmA",       label:"ループA",         sub:"アップテンポ / 128 BPM", type:"synth"},
-    {id:"bgmB",       label:"ループB",         sub:"チル / 88 BPM",          type:"synth"},
-    {id:"attention1", label:"アテンション1",   sub:"MP3 ループ / 0:09",      type:"file"},
-    {id:"attention2", label:"アテンション2",   sub:"MP3 ループ / 1:55",      type:"file"},
-    {id:"dq2tower",   label:"DQ2 塔",          sub:"MP3 ループ / 2:01",      type:"file"},
-    {id:"arena",      label:"闘技場",          sub:"合成ループ / 140 BPM",   type:"engine"},
-    {id:"boss",       label:"魔王の城",        sub:"合成ループ / 75 BPM",    type:"engine"},
-    {id:"day",        label:"昼",              sub:"合成ループ / 144 BPM",   type:"engine"},
-    {id:"race",       label:"レース",          sub:"合成ループ / 152 BPM",   type:"engine"},
-    {id:"panic",      label:"パニック",        sub:"合成ループ / 118 BPM",   type:"engine"},
-    {id:"rock",       label:"ロック",          sub:"合成ループ / 144 BPM",   type:"engine"}
+    {id:"bgmA",       label:"ループA",       type:"synth"},
+    {id:"attention2", label:"アテンション2", type:"file"},
+    {id:"dq2tower",   label:"DQ2 塔",        type:"file"},
+    {id:"arena",      label:"闘技場",        type:"engine"},
+    {id:"boss",       label:"魔王の城",      type:"engine"},
+    {id:"race",       label:"レース",        type:"engine"},
+    {id:"panic",      label:"パニック",      type:"engine"},
+    {id:"rock",       label:"ロック",        type:"engine"}
   ];
 
   /* ========== audio-extract 取り込み：合成BGMエンジン（bgmGainへ出力） ========== */
@@ -747,20 +713,9 @@
     g.gain.setValueAtTime(vol == null ? 0.045 : vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(g); g.connect(bgmGain); o.start(t); o.stop(t + dur);
   }
-  const X_DAY_RIFF  = [82.41, 82.41, 98, 82.41, 110, 98, 82.41, 73.42];
   const X_RACE_BASS = [55, 0, 55, 65.41, 73.42, 0, 55, 65.41, 82.41, 0, 73.42, 65.41, 55, 65.41, 73.42, 82.41];
   const X_RACE_ARP  = [220, 261.6, 329.6, 440, 329.6, 261.6];
   const X_ROCK_RIFF = [82.41, 82.41, 98, 82.41, 110, 98, 82.41, 73.42];
-  function xDayStep(s, t, dt){
-    if(s % 2 === 0){
-      const f = X_DAY_RIFF[(s / 2) | 0];
-      xbNote(f, t, dt * 1.6, "sawtooth", 0.055);
-      xbNote(f * 1.5, t, dt * 1.6, "sawtooth", 0.035);
-    }
-    if(s % 4 === 0) xbKick(t, 0.11);
-    if(s === 4 || s === 12) xbSnare(t);
-    if(s % 2 === 0) xbHat(t, 0.025);
-  }
   function xRaceStep(s, t, dt, gstep){
     xbHat(t, s % 4 === 0 ? 0.05 : 0.03);
     if(s % 4 === 0) xbKick(t, 0.11);
@@ -788,7 +743,6 @@
   const BGM_ENGINES = {
     arena: { start(){ xEnsureRenderBgm("arena", xrRenderArena, 60 / 140 * 8); }, stop: xStopRenderBgm },
     boss:  { start(){ xEnsureRenderBgm("boss",  xrRenderBoss,  60 / 75  * 8); }, stop: xStopRenderBgm },
-    day:   { start(){ xSeqStart(144, xDayStep);   }, stop: xSeqStop },
     race:  { start(){ xSeqStart(152, xRaceStep);  }, stop: xSeqStop },
     panic: { start(){ xSeqStart(118, xPanicStep); }, stop: xSeqStop },
     rock:  { start(){ xSeqStart(144, xRockStep);  }, stop: xSeqStop }
@@ -823,11 +777,7 @@
     Object.values(bgmAudioEls).forEach(el=>{ el.pause(); el.currentTime = 0; });
     xStopRenderBgm();
     xSeqStop();
-    document.querySelectorAll(".bgm-row").forEach(el=>{
-      el.classList.remove("playing");
-      el.querySelector(".bgm-btn").classList.remove("is-playing");
-      el.querySelector(".bgm-btn").textContent = "▶ 再生";
-    });
+    document.querySelectorAll(".bgm-btn").forEach(el=> el.classList.remove("is-playing"));
   }
 
   function startBGM(id){
@@ -837,11 +787,8 @@
     currentBGM = id;
     const myToken = ++bgmToken;
 
-    const row = document.querySelector('.bgm-row[data-id="'+id+'"]');
-    row.classList.add("playing");
-    const btn = row.querySelector(".bgm-btn");
-    btn.classList.add("is-playing");
-    btn.textContent = "■ 停止";
+    const btn = document.querySelector('.bgm-btn[data-id="'+id+'"]');
+    if(btn) btn.classList.add("is-playing");
 
     const meta = BGM_LIST.find(b=> b.id === id);
     if(meta && meta.type === "file"){
@@ -889,18 +836,12 @@
 
   const bgmListEl = document.getElementById("bgmList");
   BGM_LIST.forEach(b=>{
-    const row = document.createElement("div");
-    row.className = "bgm-row";
-    row.dataset.id = b.id;
-    row.innerHTML =
-      '<div class="viz"><i></i><i></i><i></i><i></i></div>' +
-      '<div class="bgm-info">' +
-        '<div class="bgm-name">'+b.label+'</div>' +
-        '<div class="bgm-sub">'+b.sub+'</div>' +
-      '</div>' +
-      '<button class="bgm-btn">▶ 再生</button>';
-    row.querySelector(".bgm-btn").addEventListener("click", ()=> startBGM(b.id));
-    bgmListEl.appendChild(row);
+    const btn = document.createElement("button");
+    btn.className = "bgm-btn";
+    btn.dataset.id = b.id;
+    btn.textContent = b.label;
+    btn.addEventListener("click", ()=> startBGM(b.id));
+    bgmListEl.appendChild(btn);
   });
 
   const volumeToggle = document.getElementById("bgmVolumeToggle");
