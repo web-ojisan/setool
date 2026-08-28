@@ -278,9 +278,16 @@
   const BGM_LEVEL_SAME = SE_LEVEL;
   let bgmVolumeMode = "low"; // "low" or "same"
 
+  function bgmLevel(){
+    return (bgmVolumeMode === "same") ? BGM_LEVEL_SAME : BGM_LEVEL_LOW;
+  }
+
   function applyBgmVolume(){
-    if(!bgmGain) return;
-    bgmGain.gain.value = (bgmVolumeMode === "same") ? BGM_LEVEL_SAME : BGM_LEVEL_LOW;
+    if(bgmGain) bgmGain.gain.value = bgmLevel();
+    // MediaElementSourceに繋げなかった環境向けのフォールバック
+    Object.keys(bgmAudioEls).forEach(id=>{
+      if(!bgmMediaNodes[id]) bgmAudioEls[id].volume = bgmLevel();
+    });
   }
 
   function ensureAudio(){
@@ -352,155 +359,448 @@
     noise.stop(start + dur);
   }
 
+  /* ========== audio-extract 取り込み：共通プリミティブ（seGainへ出力） ========== */
+  function xac(){ ensureAudio(); return audioCtx; }
+
+  // extracted系 tone(freq, dur, type, vol, when)（choitashi-simon 系）
+  function xTone(freq, dur, type, vol, when){
+    const ctx = xac(), t = ctx.currentTime + (when || 0);
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || "square"; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol == null ? 0.25 : vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(seGain);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+
+  // extracted系 tone(freq, dur, delay, type, vol)（friends-masu / hanbun-hanbun 系）
+  function xToneD(freq, dur, delay, type, vol){
+    const ctx = xac(), t = ctx.currentTime + (delay || 0);
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || "square"; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol == null ? 0.12 : vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(seGain);
+    o.start(t); o.stop(t + dur);
+  }
+
+  // extracted系 beep(freq, dur, type, gain)（reaction-duel / timing-duel 系）
+  function xBeep(freq, dur, type, gain){
+    const ctx = xac();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || "square"; o.frequency.value = freq;
+    g.gain.value = gain || 0.06;
+    o.connect(g); g.connect(seGain);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+    o.stop(ctx.currentTime + dur + 0.02);
+  }
+
+  // 減衰ホワイトノイズbuffer（reaction-duel createNoiseBuffer 相当）
+  function xNoiseDecay(dur, decayPow){
+    const ctx = xac();
+    const n = Math.floor(ctx.sampleRate * dur);
+    const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+    const d = buf.getChannelData(0), p = decayPow || 2;
+    for(let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, p);
+    return buf;
+  }
+
+  // ローパスを掃引するノイズ（choitashi-simon noise() 相当）
+  function xNoiseSweep(dur, fFrom, fTo, vol){
+    const ctx = xac(), t = ctx.currentTime;
+    const buf = ctx.createBuffer(1, Math.floor(ctx.sampleRate * dur), ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for(let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const f = ctx.createBiquadFilter(); f.type = "lowpass";
+    f.frequency.setValueAtTime(fFrom, t);
+    f.frequency.exponentialRampToValueAtTime(fTo, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol == null ? 0.5 : vol, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.connect(f); f.connect(g); g.connect(seGain);
+    src.start(t);
+  }
+
+  // 0.2秒ホワイトノイズ（ドラム等で使い回し）
+  let xNoiseBuf = null;
+  function xNoise2(){
+    const ctx = xac();
+    if(!xNoiseBuf){
+      xNoiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.2 | 0, ctx.sampleRate);
+      const d = xNoiseBuf.getChannelData(0);
+      for(let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    }
+    return xNoiseBuf;
+  }
+
+  // mp3をseGain経由でワンショット再生（reaction-duel WIN_SOUNDS 相当）
+  const seAudioEls = {};
+  function sePlayFile(url){
+    ensureAudio();
+    let el = seAudioEls[url];
+    if(!el){
+      el = new Audio(url);
+      seAudioEls[url] = el;
+      try { audioCtx.createMediaElementSource(el).connect(seGain); }
+      catch(e){ el.volume = SE_LEVEL; }
+    }
+    try { el.currentTime = 0; } catch(e){}
+    el.play().catch(()=>{});
+  }
+
   /* ---------- SE definitions ---------- */
   const SE_PLAYERS = {
-    coin(){
-      const t = audioCtx.currentTime;
-      tone(988, t, 0.09, "square", 0.35);
-      tone(1319, t+0.08, 0.18, "square", 0.35);
-    },
-    jump(){
-      const t = audioCtx.currentTime;
-      sweep(220, 660, t, 0.16, "square", 0.3);
-    },
     powerup(){
       const t = audioCtx.currentTime;
       [523,659,784,1046].forEach((f,i)=> tone(f, t + i*0.07, 0.12, "square", 0.28));
-    },
-    decide(){
-      const t = audioCtx.currentTime;
-      tone(880, t, 0.09, "square", 0.32);
-      tone(1174, t+0.06, 0.10, "square", 0.28);
-    },
-    cancel(){
-      const t = audioCtx.currentTime;
-      sweep(700, 220, t, 0.18, "square", 0.28);
     },
     explosion(){
       const t = audioCtx.currentTime;
       noiseBurst(t, 0.5, 0.6, 1800);
       sweep(140, 40, t, 0.4, "sawtooth", 0.25);
     },
-    laser(){
+    victory(){
       const t = audioCtx.currentTime;
-      sweep(2200, 220, t, 0.22, "sawtooth", 0.25);
-    },
-    notify(){
-      const t = audioCtx.currentTime;
-      tone(880, t, 0.12, "sine", 0.3);
-      tone(1318, t+0.14, 0.22, "sine", 0.3);
-    },
-    clap(){
-      const t = audioCtx.currentTime;
-      for(let i=0;i<3;i++){ noiseBurst(t + i*0.06, 0.08, 0.4, 4000); }
-    },
-    buzzer(){
-      const t = audioCtx.currentTime;
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = "sawtooth";
-      osc.frequency.setValueAtTime(110, t);
-      gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.3, t+0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t+0.5);
-      osc.connect(gain);
-      gain.connect(seGain);
-      osc.start(t);
-      osc.stop(t+0.55);
-    },
-    hit(){
-      const t = audioCtx.currentTime;
-      noiseBurst(t, 0.06, 0.5, 3000);
-      tone(180, t, 0.05, "square", 0.3);
-    },
-    heal(){
-      const t = audioCtx.currentTime;
-      sweep(420, 900, t, 0.3, "sine", 0.25);
-      tone(900, t+0.28, 0.15, "sine", 0.2);
-    },
-    warp(){
-      const t = audioCtx.currentTime;
-      sweep(1200, 150, t, 0.22, "sine", 0.25);
-      sweep(150, 900, t+0.2, 0.22, "sine", 0.2);
-    },
-    save(){
-      const t = audioCtx.currentTime;
-      tone(659, t, 0.12, "triangle", 0.25);
-      tone(880, t+0.13, 0.18, "triangle", 0.25);
-    },
-    load(){
-      const t = audioCtx.currentTime;
-      tone(440, t, 0.09, "triangle", 0.25);
-      tone(554, t+0.09, 0.09, "triangle", 0.25);
-      tone(659, t+0.18, 0.18, "triangle", 0.25);
-    },
-    levelup(){
-      const t = audioCtx.currentTime;
-      [523,659,784,1046,1319].forEach((f,i)=> tone(f, t + i*0.06, 0.12, "square", 0.3));
-    },
-    door(){
-      const t = audioCtx.currentTime;
-      noiseBurst(t, 0.15, 0.3, 600);
-      tone(80, t, 0.2, "sine", 0.3);
-    },
-    page(){
-      const t = audioCtx.currentTime;
-      noiseBurst(t, 0.08, 0.35, 6000);
-    },
-    drop(){
-      const t = audioCtx.currentTime;
-      sweep(1200, 400, t, 0.12, "sine", 0.3);
+      [523,659,784,1046,1319,1568].forEach((f,i)=> tone(f, t + i*0.09, 0.18, "square", 0.32));
     },
     error(){
       const t = audioCtx.currentTime;
       tone(200, t, 0.15, "square", 0.3);
       tone(150, t+0.16, 0.2, "square", 0.3);
-    },
-    select(){
-      const t = audioCtx.currentTime;
-      tone(1046, t, 0.05, "square", 0.25);
-    },
-    countdown(){
-      const t = audioCtx.currentTime;
-      tone(880, t, 0.08, "square", 0.3);
-    },
-    victory(){
-      const t = audioCtx.currentTime;
-      [523,659,784,1046,1319,1568].forEach((f,i)=> tone(f, t + i*0.09, 0.18, "square", 0.32));
-    },
-    hurt(){
-      const t = audioCtx.currentTime;
-      noiseBurst(t, 0.12, 0.45, 2000);
-      sweep(400, 120, t, 0.15, "sawtooth", 0.25);
     }
   };
 
   const SE_LIST = [
-    {id:"coin",      label:"コイン",       icon:"🪙", color:"amber"},
-    {id:"jump",      label:"ジャンプ",     icon:"⤴️", color:"cyan"},
     {id:"powerup",   label:"パワーアップ", icon:"⭐", color:"magenta"},
-    {id:"decide",    label:"決定",         icon:"✅", color:"cyan"},
-    {id:"cancel",    label:"キャンセル",   icon:"✖️", color:"magenta"},
     {id:"explosion", label:"爆発",         icon:"💥", color:"amber"},
-    {id:"laser",     label:"レーザー",     icon:"🔫", color:"cyan"},
-    {id:"notify",    label:"通知",         icon:"🔔", color:"magenta"},
-    {id:"clap",      label:"拍手",         icon:"👏", color:"amber"},
-    {id:"buzzer",    label:"ブザー",       icon:"⚠️", color:"cyan"},
-    {id:"hit",       label:"ヒット",       icon:"🥊", color:"magenta"},
-    {id:"hurt",      label:"ダメージ",     icon:"💢", color:"amber"},
-    {id:"heal",      label:"回復",         icon:"💚", color:"cyan"},
-    {id:"warp",      label:"ワープ",       icon:"🌀", color:"magenta"},
-    {id:"save",      label:"セーブ",       icon:"💾", color:"amber"},
-    {id:"load",      label:"ロード",       icon:"📂", color:"cyan"},
-    {id:"levelup",   label:"レベルアップ", icon:"🆙", color:"magenta"},
     {id:"victory",   label:"勝利",         icon:"🏆", color:"amber"},
-    {id:"door",      label:"ドア",         icon:"🚪", color:"cyan"},
-    {id:"page",      label:"ページ",       icon:"📄", color:"magenta"},
-    {id:"drop",      label:"水滴",         icon:"💧", color:"amber"},
-    {id:"error",     label:"エラー",       icon:"❌", color:"cyan"},
-    {id:"select",    label:"選択",         icon:"👉", color:"magenta"},
-    {id:"countdown", label:"カウント",     icon:"⏱️", color:"amber"}
+    {id:"error",     label:"エラー",       icon:"❌", color:"cyan"}
   ];
+
+  /* ---------- audio-extract から取り込んだ効果音（重複を除いた代表） ---------- */
+  Object.assign(SE_PLAYERS, {
+    whoosh(){ xNoiseSweep(0.55, 300, 4000, 0.3); },
+    call(){ xTone(1046, 0.10, "triangle", 0.32); xTone(1568, 0.18, "triangle", 0.34, 0.09); },
+    dice(){
+      for(let i = 0; i < 5; i++){
+        setTimeout(()=>{
+          const ctx = xac(), t = ctx.currentTime;
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = "square"; o.frequency.value = 650 + Math.random() * 350;
+          g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.04);
+          o.connect(g); g.connect(seGain); o.start(t); o.stop(t + 0.05);
+        }, i * 70);
+      }
+      setTimeout(()=>{
+        const ctx = xac(), t = ctx.currentTime;
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "triangle";
+        o.frequency.setValueAtTime(300, t); o.frequency.exponentialRampToValueAtTime(110, t + 0.12);
+        g.gain.setValueAtTime(0.1, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+        o.connect(g); g.connect(seGain); o.start(t); o.stop(t + 0.17);
+      }, 380);
+    },
+    clash(){
+      const ctx = xac(), t = ctx.currentTime;
+      const s = ctx.createBufferSource(); s.buffer = xNoise2();
+      const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1600; f.Q.value = 1.1;
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.17, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+      s.connect(f); f.connect(g); g.connect(seGain); s.start(t); s.stop(t + 0.2);
+      const o = ctx.createOscillator(), og = ctx.createGain();
+      o.type = "triangle"; o.frequency.value = 1200;
+      og.gain.setValueAtTime(0.05, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+      o.connect(og); og.connect(seGain); o.start(t); o.stop(t + 0.16);
+    },
+    down(){
+      const ctx = xac(), t = ctx.currentTime;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(80, t + 0.35);
+      g.gain.setValueAtTime(0.09, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      o.connect(g); g.connect(seGain); o.start(t); o.stop(t + 0.42);
+    },
+    bell(){
+      const ctx = xac(), now = ctx.currentTime;
+      [[1760,0.20],[2640,0.09],[3520,0.05]].forEach(p=>{
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "sine"; o.frequency.value = p[0];
+        g.gain.setValueAtTime(p[1], now);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 1.8);
+        o.connect(g); g.connect(seGain); o.start(now); o.stop(now + 1.9);
+      });
+    },
+    bossvictory(){
+      const ctx = xac(), now = ctx.currentTime;
+      const d1 = ctx.createOscillator(); d1.type = "sawtooth"; d1.frequency.value = 55;
+      const d2 = ctx.createOscillator(); d2.type = "sawtooth"; d2.frequency.value = 55.6;
+      const dg = ctx.createGain();
+      dg.gain.setValueAtTime(0.0001, now);
+      dg.gain.exponentialRampToValueAtTime(0.09, now + 0.35);
+      dg.gain.exponentialRampToValueAtTime(0.0001, now + 3.2);
+      d1.connect(dg); d2.connect(dg); dg.connect(seGain);
+      d1.start(now); d2.start(now); d1.stop(now + 3.3); d2.stop(now + 3.3);
+      [440, 392, 349.23, 311.13].forEach((freq, i)=>{
+        const t = now + 0.15 + i * 0.32;
+        const o = ctx.createOscillator(); o.type = "sawtooth"; o.frequency.value = freq;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(0.11, t + 0.05);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+        o.connect(g); g.connect(seGain); o.start(t); o.stop(t + 0.46);
+      });
+      setTimeout(()=>{ xBeep(50, 0.9, "sine", 0.3); xBeep(75, 0.7, "sine", 0.15); }, 1500);
+    },
+    ending(){
+      const ctx = xac(), now = ctx.currentTime;
+      [261.63, 329.63, 392.00, 523.25].forEach(freq=>{
+        const o = ctx.createOscillator(); o.type = "sine"; o.frequency.value = freq;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.exponentialRampToValueAtTime(0.055, now + 0.9);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + 4.2);
+        o.connect(g); g.connect(seGain); o.start(now); o.stop(now + 4.3);
+      });
+      [{f:523.25,t:0.3,d:0.5},{f:587.33,t:0.9,d:0.4},{f:659.25,t:1.4,d:0.4},
+       {f:783.99,t:1.9,d:0.6},{f:698.46,t:2.6,d:0.4},{f:783.99,t:3.1,d:1.1}
+      ].forEach(n=>{
+        const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.value = n.f;
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.0001, now + n.t);
+        g.gain.exponentialRampToValueAtTime(0.09, now + n.t + 0.07);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + n.t + n.d);
+        o.connect(g); g.connect(seGain); o.start(now + n.t); o.stop(now + n.t + n.d + 0.05);
+      });
+    },
+    bossmagic(){
+      const ctx = xac();
+      const dur = 1.7;
+      const noise = ctx.createBufferSource(); noise.buffer = xNoiseDecay(dur, 1.7);
+      const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 0.7;
+      bp.frequency.setValueAtTime(650, ctx.currentTime);
+      bp.frequency.exponentialRampToValueAtTime(45, ctx.currentTime + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.34, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+      noise.connect(bp); bp.connect(g); g.connect(seGain); noise.start();
+      const o = ctx.createOscillator(); o.type = "sawtooth";
+      o.frequency.setValueAtTime(220, ctx.currentTime);
+      o.frequency.exponentialRampToValueAtTime(32, ctx.currentTime + dur);
+      const og = ctx.createGain();
+      og.gain.setValueAtTime(0.0001, ctx.currentTime);
+      og.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + 0.08);
+      og.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+      o.connect(og); og.connect(seGain); o.start(); o.stop(ctx.currentTime + dur + 0.05);
+      xBeep(30, 1.0, "sine", 0.34);
+      setTimeout(()=>{ xBeep(24, 0.8, "sine", 0.18); }, 340);
+    },
+    burst(){
+      const ctx = xac();
+      xBeep(180, 0.09, "square", 0.17);
+      const dur = 0.5;
+      const noise = ctx.createBufferSource(); noise.buffer = xNoiseDecay(dur, 1.8);
+      const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 0.5;
+      bp.frequency.setValueAtTime(1800, ctx.currentTime);
+      bp.frequency.exponentialRampToValueAtTime(7000, ctx.currentTime + dur * 0.4);
+      bp.frequency.exponentialRampToValueAtTime(2500, ctx.currentTime + dur);
+      const ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.0001, ctx.currentTime);
+      ng.gain.exponentialRampToValueAtTime(0.24, ctx.currentTime + 0.06);
+      ng.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+      noise.connect(bp); bp.connect(ng); ng.connect(seGain); noise.start();
+      [523.25, 659.25, 783.99, 1046.5].forEach((freq, i)=> setTimeout(()=> xBeep(freq, 0.22, "triangle", 0.16), 40 + i * 50));
+      [659.25, 830.61, 987.77, 1318.5].forEach((freq, i)=> setTimeout(()=> xBeep(freq, 0.26, "triangle", 0.15), 260 + i * 45));
+      [1568, 1976, 2349, 2637, 3136, 3729, 4186].forEach((freq, i)=> setTimeout(()=> xBeep(freq, 0.14, "sine", 0.06), 300 + i * 40));
+      setTimeout(()=>{ xBeep(1046.5, 0.3, "square", 0.13); xBeep(523.25, 0.35, "triangle", 0.11); }, 520);
+    },
+    slash(){
+      const ctx = xac();
+      const dur = 0.42;
+      const noise = ctx.createBufferSource(); noise.buffer = xNoiseDecay(dur, 2.4);
+      const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 1.3;
+      bp.frequency.setValueAtTime(5200, ctx.currentTime);
+      bp.frequency.exponentialRampToValueAtTime(1000, ctx.currentTime + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.28, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+      noise.connect(bp); bp.connect(g); g.connect(seGain); noise.start();
+      xBeep(2600, 0.22, "triangle", 0.07);
+      setTimeout(()=>{ xBeep(3400, 0.35, "sine", 0.05); }, 100);
+      setTimeout(()=>{ xBeep(2100, 0.4, "sine", 0.035); }, 180);
+    },
+    punch(){
+      const hits = [
+        {f:150,dur:0.08,g:0.14},{f:172,dur:0.08,g:0.14},{f:140,dur:0.08,g:0.15},
+        {f:190,dur:0.08,g:0.15},{f:110,dur:0.22,g:0.24}
+      ];
+      let t = 0;
+      hits.forEach((hit, i)=>{
+        setTimeout(()=> xBeep(hit.f, hit.dur, "square", hit.g), t);
+        t += (i === hits.length - 2) ? 130 : 110;
+      });
+    },
+    firemagic(){
+      const ctx = xac();
+      const dur = 0.9;
+      const noise = ctx.createBufferSource(); noise.buffer = xNoiseDecay(dur, 1.5);
+      const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 0.7;
+      bp.frequency.setValueAtTime(300, ctx.currentTime);
+      bp.frequency.exponentialRampToValueAtTime(3200, ctx.currentTime + dur * 0.6);
+      bp.frequency.exponentialRampToValueAtTime(900, ctx.currentTime + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.22, ctx.currentTime + 0.08);
+      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+      noise.connect(bp); bp.connect(g); g.connect(seGain); noise.start();
+      const o = ctx.createOscillator(); o.type = "sawtooth";
+      o.frequency.setValueAtTime(220, ctx.currentTime);
+      o.frequency.exponentialRampToValueAtTime(520, ctx.currentTime + dur);
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 14;
+      const lfoGain = ctx.createGain(); lfoGain.gain.value = 60;
+      lfo.connect(lfoGain); lfoGain.connect(o.frequency);
+      const og = ctx.createGain();
+      og.gain.setValueAtTime(0.0001, ctx.currentTime);
+      og.gain.exponentialRampToValueAtTime(0.06, ctx.currentTime + 0.1);
+      og.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
+      o.connect(og); og.connect(seGain);
+      lfo.start(); o.start();
+      lfo.stop(ctx.currentTime + dur + 0.05); o.stop(ctx.currentTime + dur + 0.05);
+    },
+    count(){
+      [3, 2, 1, 0].forEach((n, i)=>{
+        setTimeout(()=>{
+          const freq = n === 0 ? 1320 : [880, 740, 660][3 - n] || 660;
+          xBeep(freq, n === 0 ? 0.18 : 0.12, n === 0 ? "square" : "sine", n === 0 ? 0.1 : 0.07);
+        }, i * 450);
+      });
+    },
+    perfect(){
+      [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((f, i)=> setTimeout(()=> xBeep(f, 0.3, "triangle", 0.15), i * 75));
+      setTimeout(()=>{ xBeep(2093, 0.5, "sine", 0.10); xBeep(1568, 0.6, "triangle", 0.12); xBeep(2637, 0.4, "sine", 0.07); }, 420);
+      [3136, 3729, 4186].forEach((f, i)=> setTimeout(()=> xBeep(f, 0.2, "sine", 0.06), 520 + i * 55));
+      setTimeout(()=>{
+        const c = xac();
+        const dur = 0.9;
+        const noise = c.createBufferSource(); noise.buffer = xNoiseDecay(dur, 1.6);
+        const bp = c.createBiquadFilter(); bp.type = "bandpass"; bp.Q.value = 0.6;
+        bp.frequency.setValueAtTime(800, c.currentTime);
+        bp.frequency.exponentialRampToValueAtTime(6000, c.currentTime + 0.3);
+        bp.frequency.exponentialRampToValueAtTime(2000, c.currentTime + dur);
+        const g = c.createGain();
+        g.gain.setValueAtTime(0.0001, c.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.28, c.currentTime + 0.06);
+        g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+        noise.connect(bp); bp.connect(g); g.connect(seGain); noise.start();
+      }, 350);
+    },
+    combo(){
+      const ctx = xac(), now = ctx.currentTime;
+      const c = 4;
+      const ratio = Math.pow(2, Math.min((c - 1) * 2, 12) / 12);
+      [523.25, 659.25, 783.99, 1046.50].map(f=> f * ratio).forEach((f, i)=>{
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "triangle"; o.frequency.setValueAtTime(f, now + i * 0.085);
+        g.gain.setValueAtTime(0.0001, now + i * 0.085);
+        g.gain.exponentialRampToValueAtTime(0.24, now + i * 0.085 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.085 + 0.32);
+        o.connect(g); g.connect(seGain); o.start(now + i * 0.085); o.stop(now + i * 0.085 + 0.35);
+      });
+      xTone(1568 * ratio, 0.24, "sine", 0.13, 0.30);
+      xTone(2093 * ratio, 0.20, "sine", 0.10, 0.34);
+    },
+    correct(){
+      const ctx = xac(), now = ctx.currentTime;
+      [880, 1175, 1568].forEach((f, i)=>{
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "triangle"; o.frequency.setValueAtTime(f, now + i * 0.08);
+        g.gain.setValueAtTime(0.0001, now + i * 0.08);
+        g.gain.exponentialRampToValueAtTime(0.22, now + i * 0.08 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.08 + 0.22);
+        o.connect(g); g.connect(seGain); o.start(now + i * 0.08); o.stop(now + i * 0.08 + 0.25);
+      });
+    },
+    chime(){
+      const ctx = xac(), now = ctx.currentTime;
+      [[523.25,0],[659.25,0.075],[783.99,0.15],[1046.5,0.225]].forEach(([f, d])=>{
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = "triangle"; o.frequency.setValueAtTime(f, now + d);
+        g.gain.setValueAtTime(0.0001, now + d);
+        g.gain.exponentialRampToValueAtTime(0.28, now + d + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, now + d + 0.38);
+        o.connect(g); g.connect(seGain); o.start(now + d); o.stop(now + d + 0.4);
+      });
+      xTone(2093, 0.22, "sine", 0.12, 0.32);
+    },
+    dedeen(){
+      const hit = (f, dur, d)=>{
+        xToneD(f, dur, d, "sawtooth", 0.14);
+        xToneD(f * 1.189, dur, d, "sawtooth", 0.09);
+        xToneD(f / 2, dur, d, "square", 0.1);
+      };
+      hit(196, 0.18, 0); hit(196, 0.18, 0.22); hit(155.6, 0.8, 0.44);
+    },
+    bossappear(){
+      [[220,0.08,0,"sawtooth"],[196,0.08,0.1,"sawtooth"],[164.8,0.08,0.2,"sawtooth"],
+       [130.8,0.3,0.32,"square"],[196,0.18,0.72,"square"],[261.6,0.32,0.96,"square"]]
+        .forEach(([f, d, dl, t])=> xToneD(f, d, dl, t, 0.11));
+    },
+    bossclear(){
+      const ctx = xac(), t0 = ctx.currentTime;
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = "sawtooth";
+      o.frequency.setValueAtTime(130.8, t0);
+      o.frequency.exponentialRampToValueAtTime(1046.5, t0 + 0.28);
+      g.gain.setValueAtTime(0.001, t0);
+      g.gain.exponentialRampToValueAtTime(0.16, t0 + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + 0.3);
+      o.connect(g); g.connect(seGain); o.start(t0); o.stop(t0 + 0.3);
+      [523.3, 659.3, 784, 1046.5].forEach(f=>{
+        xToneD(f, 0.6, 0.3, "square", 0.13);
+        xToneD(f / 2, 0.6, 0.3, "triangle", 0.08);
+      });
+      xToneD(1568, 0.5, 0.34, "square", 0.1);
+    },
+    finish(){
+      xToneD(1568, 0.15, 0, "square", 0.1);
+      xToneD(1568, 0.15, 0.2, "square", 0.1);
+      [[523.3,0.12,0.65],[659.3,0.12,0.78],[784,0.12,0.91],[1046.5,0.55,1.04]].forEach(([f, d, dl])=>{
+        xToneD(f, d, dl, "square", 0.09);
+        xToneD(f / 2, d, dl, "triangle", 0.07);
+      });
+    },
+    winsword(){ sePlayFile("se/swordattak.mp3"); },
+    winmagic(){ sePlayFile("se/magckatack.mp3"); },
+    winfire(){ sePlayFile("se/fireatack.mp3"); }
+  });
+
+  SE_LIST.push(
+    {id:"correct",     label:"正解",         icon:"⭕", color:"cyan"},
+    {id:"combo",       label:"コンボ",       icon:"🔢", color:"magenta"},
+    {id:"perfect",     label:"パーフェクト", icon:"💯", color:"amber"},
+    {id:"chime",       label:"チャイム",     icon:"🎐", color:"cyan"},
+    {id:"bell",        label:"ベル",         icon:"🔔", color:"magenta"},
+    {id:"count",       label:"カウント",     icon:"⏱️", color:"amber"},
+    {id:"whoosh",      label:"ウーシュ",     icon:"💨", color:"cyan"},
+    {id:"call",        label:"コール",       icon:"📣", color:"magenta"},
+    {id:"dice",        label:"サイコロ",     icon:"🎲", color:"amber"},
+    {id:"clash",       label:"衝突",         icon:"⚔️", color:"cyan"},
+    {id:"slash",       label:"斬撃",         icon:"🗡️", color:"magenta"},
+    {id:"punch",       label:"連打",         icon:"👊", color:"amber"},
+    {id:"firemagic",   label:"炎魔法",       icon:"🔥", color:"cyan"},
+    {id:"bossmagic",   label:"魔法",         icon:"🟣", color:"magenta"},
+    {id:"burst",       label:"必殺",         icon:"✨", color:"amber"},
+    {id:"down",        label:"ダウン",       icon:"😵", color:"cyan"},
+    {id:"dedeen",      label:"デデーン",     icon:"😱", color:"magenta"},
+    {id:"bossappear",  label:"ボス出現",     icon:"👺", color:"amber"},
+    {id:"bossclear",   label:"ボス撃破",     icon:"🎉", color:"cyan"},
+    {id:"bossvictory", label:"ボス勝利",     icon:"👹", color:"magenta"},
+    {id:"finish",      label:"終了",         icon:"🏁", color:"amber"},
+    {id:"ending",      label:"エンディング", icon:"🌅", color:"cyan"},
+    {id:"winsword",    label:"剣SE",         icon:"🥇", color:"magenta"},
+    {id:"winmagic",    label:"魔法SE",       icon:"🪄", color:"amber"},
+    {id:"winfire",     label:"炎SE",         icon:"🧨", color:"cyan"}
+  );
 
   /* ---------- BGM (simple step-sequenced loops) ---------- */
   const BGM_PATTERNS = {
@@ -516,17 +816,257 @@
     }
   };
 
+  /* ---------- BGM (mp3ループ再生) ---------- */
+  const BGM_FILES = {
+    attention1: "bgm/attention1.mp3",
+    attention2: "bgm/attention2.mp3",
+    dq2tower:   "bgm/dq2tower.mp3"
+  };
+
   const BGM_LIST = [
-    {id:"bgmA", label:"ループA", sub:"アップテンポ / 128 BPM"},
-    {id:"bgmB", label:"ループB", sub:"チル / 88 BPM"}
+    {id:"bgmA",       label:"ループA",         sub:"アップテンポ / 128 BPM", type:"synth"},
+    {id:"bgmB",       label:"ループB",         sub:"チル / 88 BPM",          type:"synth"},
+    {id:"attention1", label:"アテンション1",   sub:"MP3 ループ / 0:09",      type:"file"},
+    {id:"attention2", label:"アテンション2",   sub:"MP3 ループ / 1:55",      type:"file"},
+    {id:"dq2tower",   label:"DQ2 塔",          sub:"MP3 ループ / 2:01",      type:"file"},
+    {id:"arena",      label:"闘技場",          sub:"合成ループ / 140 BPM",   type:"engine"},
+    {id:"boss",       label:"魔王の城",        sub:"合成ループ / 75 BPM",    type:"engine"},
+    {id:"day",        label:"昼",              sub:"合成ループ / 144 BPM",   type:"engine"},
+    {id:"race",       label:"レース",          sub:"合成ループ / 152 BPM",   type:"engine"},
+    {id:"panic",      label:"パニック",        sub:"合成ループ / 118 BPM",   type:"engine"},
+    {id:"rock",       label:"ロック",          sub:"合成ループ / 144 BPM",   type:"engine"}
   ];
+
+  /* ========== audio-extract 取り込み：合成BGMエンジン（bgmGainへ出力） ========== */
+  // (A) OfflineAudioContextで1ループ事前レンダリング → loop再生（闘技場 / 魔王の城）
+  const xRenderCache = {};
+  let xRenderSrc = null;
+  function xStopRenderBgm(){
+    if(xRenderSrc){ try { xRenderSrc.stop(); } catch(e){} xRenderSrc = null; }
+  }
+  function xPlayRenderBgm(buf){
+    ensureAudio();
+    xStopRenderBgm();
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf; src.loop = true;
+    const g = audioCtx.createGain(); g.gain.value = 0.28; // レンダリング済みループの整音
+    src.connect(g); g.connect(bgmGain);
+    src.start();
+    xRenderSrc = src;
+  }
+  function xEnsureRenderBgm(key, renderFn, loopDur){
+    if(xRenderCache[key]){ xPlayRenderBgm(xRenderCache[key]); return; }
+    const SR = 44100;
+    const oCtx = new OfflineAudioContext(1, Math.ceil(loopDur * SR), SR);
+    renderFn(oCtx, loopDur, SR);
+    oCtx.startRendering().then(buf=>{
+      xRenderCache[key] = buf;
+      if(currentBGM === key) xPlayRenderBgm(buf);
+    });
+  }
+  function xrNoiseChunk(oCtx, dur, SR){
+    const buf = oCtx.createBuffer(1, Math.ceil(dur * SR), SR);
+    const d = buf.getChannelData(0);
+    for(let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    return buf;
+  }
+  function xrKick(oCtx, t){
+    const o = oCtx.createOscillator(), g = oCtx.createGain();
+    o.frequency.setValueAtTime(160, t);
+    o.frequency.exponentialRampToValueAtTime(30, t + 0.22);
+    g.gain.setValueAtTime(0.75, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+    o.connect(g); g.connect(oCtx.destination); o.start(t); o.stop(t + 0.23);
+  }
+  function xrSnare(oCtx, t, SR){
+    const ns = oCtx.createBufferSource(); ns.buffer = xrNoiseChunk(oCtx, 0.14, SR);
+    const hp = oCtx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1800;
+    const g = oCtx.createGain();
+    g.gain.setValueAtTime(0.38, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.14);
+    ns.connect(hp); hp.connect(g); g.connect(oCtx.destination); ns.start(t);
+    const o = oCtx.createOscillator(), og = oCtx.createGain();
+    o.frequency.value = 200; og.gain.setValueAtTime(0.10, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+    o.connect(og); og.connect(oCtx.destination); o.start(t); o.stop(t + 0.08);
+  }
+  function xrHat(oCtx, t, dur, vol, SR){
+    const ns = oCtx.createBufferSource(); ns.buffer = xrNoiseChunk(oCtx, dur, SR);
+    const hp = oCtx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 9000;
+    const g = oCtx.createGain();
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    ns.connect(hp); hp.connect(g); g.connect(oCtx.destination); ns.start(t);
+  }
+  function xrTone(oCtx, t, freq, dur, type, vol){
+    const o = oCtx.createOscillator(), g = oCtx.createGain();
+    o.type = type || "sawtooth"; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(vol, t + Math.min(0.06, dur * 0.3));
+    g.gain.setValueAtTime(vol, t + dur - 0.05);
+    g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(oCtx.destination); o.start(t); o.stop(t + dur + 0.01);
+  }
+  function xrRenderArena(oCtx, loopDur, SR){
+    const step = 60 / 140 / 4;
+    [0,6,8,14,16,22,24,27].forEach(s=> xrKick(oCtx, s * step));
+    [4,12,20,28].forEach(s=> xrSnare(oCtx, s * step, SR));
+    for(let s = 0; s < 32; s += 2) xrHat(oCtx, s * step, 0.04, s % 8 === 0 ? 0.14 : 0.08, SR);
+    [[0,55,4],[4,41,2],[6,49,2],[8,55,3],[12,37,2],[14,41,2],
+     [16,55,4],[20,49,2],[22,41,2],[24,55,3],[28,41,3]
+    ].forEach(b=> xrTone(oCtx, b[0] * step, b[1] * 2, b[2] * step, "sawtooth", 0.22));
+    [[0,220,3],[4,262,2],[6,294,2],[8,330,3],[12,262,2],[14,220,3],
+     [16,392,2],[18,349,2],[20,330,3],[24,294,2],[26,220,2],[28,247,4]
+    ].forEach(n=> xrTone(oCtx, n[0] * step, n[1], n[2] * step, "sawtooth", 0.09));
+  }
+  function xrRenderBoss(oCtx, loopDur, SR){
+    const beat = 60 / 75;
+    [0,2,4,6].forEach(b=>{
+      if(b % 4 === 0 || b % 4 === 2){
+        const o = oCtx.createOscillator(), g = oCtx.createGain();
+        o.frequency.setValueAtTime(55, b * beat);
+        o.frequency.exponentialRampToValueAtTime(18, b * beat + 0.55);
+        g.gain.setValueAtTime(0.65, b * beat); g.gain.exponentialRampToValueAtTime(0.001, b * beat + 0.55);
+        o.connect(g); g.connect(oCtx.destination); o.start(b * beat); o.stop(b * beat + 0.56);
+      }
+    });
+    [[55,1.2],[65.4,1.8],[82.4,0.9]].forEach(fc=>{
+      for(let d = 0; d < 3; d++) xrTone(oCtx, 0, fc[0] + d * fc[1], loopDur - 0.05, "sine", 0.09);
+    });
+    [[0,110,1.8],[2,116.5,0.6],[2.5,98,1.5],[4,110,1.8],[6,87.3,0.9],[7,82.4,1.3]
+    ].forEach(n=> xrTone(oCtx, n[0] * beat, n[1], n[2] * beat, "sawtooth", 0.10));
+    [[1,220,0.5],[3,233,0.5],[5,196,0.8],[7,185,1.0]
+    ].forEach(n=> xrTone(oCtx, n[0] * beat, n[1], n[2] * beat, "sine", 0.05));
+  }
+
+  // (B) リアルタイム16分音符シーケンサ（昼 / レース / パニック / ロック）
+  const xSeqState = { playing:false, timer:null, nextTime:0, step:0, dt:0, stepFn:null };
+  function xSeqStop(){
+    xSeqState.playing = false;
+    if(xSeqState.timer){ clearInterval(xSeqState.timer); xSeqState.timer = null; }
+  }
+  function xSeqStart(bpm, stepFn){
+    ensureAudio();
+    xSeqStop();
+    xSeqState.playing = true;
+    xSeqState.step = 0;
+    xSeqState.dt = 60 / bpm / 4;
+    xSeqState.stepFn = stepFn;
+    xSeqState.nextTime = audioCtx.currentTime + 0.05;
+    xSeqState.timer = setInterval(()=>{
+      if(!xSeqState.playing) return;
+      while(xSeqState.nextTime < audioCtx.currentTime + 0.12){
+        xSeqState.stepFn(xSeqState.step % 16, xSeqState.nextTime, xSeqState.dt, xSeqState.step);
+        xSeqState.nextTime += xSeqState.dt;
+        xSeqState.step++;
+      }
+    }, 25);
+  }
+  function xbKick(t, vol){
+    const ctx = xac();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+    g.gain.setValueAtTime(vol == null ? 0.13 : vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+    o.connect(g); g.connect(bgmGain); o.start(t); o.stop(t + 0.16);
+  }
+  function xbSnare(t, vol){
+    const ctx = xac();
+    const s = ctx.createBufferSource(); s.buffer = xNoise2();
+    const f = ctx.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 2000;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(vol == null ? 0.07 : vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.1);
+    s.connect(f); f.connect(g); g.connect(bgmGain); s.start(t); s.stop(t + 0.1);
+  }
+  function xbHat(t, vol, dur){
+    const ctx = xac();
+    const s = ctx.createBufferSource(); s.buffer = xNoise2();
+    const f = ctx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = 6500;
+    const g = ctx.createGain();
+    const dd = dur || 0.03;
+    g.gain.setValueAtTime(vol == null ? 0.035 : vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dd);
+    s.connect(f); f.connect(g); g.connect(bgmGain); s.start(t); s.stop(t + dd);
+  }
+  function xbNote(freq, t, dur, type, vol){
+    const ctx = xac();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = type || "square"; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol == null ? 0.045 : vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(bgmGain); o.start(t); o.stop(t + dur);
+  }
+  const X_DAY_RIFF  = [82.41, 82.41, 98, 82.41, 110, 98, 82.41, 73.42];
+  const X_RACE_BASS = [55, 0, 55, 65.41, 73.42, 0, 55, 65.41, 82.41, 0, 73.42, 65.41, 55, 65.41, 73.42, 82.41];
+  const X_RACE_ARP  = [220, 261.6, 329.6, 440, 329.6, 261.6];
+  const X_ROCK_RIFF = [82.41, 82.41, 98, 82.41, 110, 98, 82.41, 73.42];
+  function xDayStep(s, t, dt){
+    if(s % 2 === 0){
+      const f = X_DAY_RIFF[(s / 2) | 0];
+      xbNote(f, t, dt * 1.6, "sawtooth", 0.055);
+      xbNote(f * 1.5, t, dt * 1.6, "sawtooth", 0.035);
+    }
+    if(s % 4 === 0) xbKick(t, 0.11);
+    if(s === 4 || s === 12) xbSnare(t);
+    if(s % 2 === 0) xbHat(t, 0.025);
+  }
+  function xRaceStep(s, t, dt, gstep){
+    xbHat(t, s % 4 === 0 ? 0.05 : 0.03);
+    if(s % 4 === 0) xbKick(t, 0.11);
+    const b = X_RACE_BASS[s];
+    if(b) xbNote(b, t, dt * 1.7, "square", 0.05);
+    if(s % 2 === 1) xbNote(X_RACE_ARP[(gstep >> 1) % X_RACE_ARP.length], t, dt * 1.2, "triangle", 0.028);
+  }
+  function xPanicStep(s, t, dt){
+    if(s === 0){ xbNote(1800, t, 0.025, "square", 0.055); xbNote(55, t, dt * 15, "sawtooth", 0.02); }
+    if(s === 8) xbNote(1400, t, 0.025, "square", 0.055);
+    if(s === 0) xbKick(t, 0.13);
+    if(s === 3) xbKick(t, 0.09);
+    if(s === 4 || s === 12) xbHat(t, 0.04);
+  }
+  function xRockStep(s, t, dt){
+    if(s % 2 === 0){
+      const f = X_ROCK_RIFF[(s / 2) | 0];
+      xbNote(f, t, dt * 1.6, "sawtooth", 0.055);
+      xbNote(f * 1.5, t, dt * 1.6, "sawtooth", 0.035);
+    }
+    if(s % 4 === 0) xbKick(t, 0.11);
+    if(s === 4 || s === 12) xbSnare(t);
+    if(s % 2 === 0) xbHat(t, 0.025);
+  }
+  const BGM_ENGINES = {
+    arena: { start(){ xEnsureRenderBgm("arena", xrRenderArena, 60 / 140 * 8); }, stop: xStopRenderBgm },
+    boss:  { start(){ xEnsureRenderBgm("boss",  xrRenderBoss,  60 / 75  * 8); }, stop: xStopRenderBgm },
+    day:   { start(){ xSeqStart(144, xDayStep);   }, stop: xSeqStop },
+    race:  { start(){ xSeqStart(152, xRaceStep);  }, stop: xSeqStop },
+    panic: { start(){ xSeqStart(118, xPanicStep); }, stop: xSeqStop },
+    rock:  { start(){ xSeqStart(144, xRockStep);  }, stop: xSeqStop }
+  };
 
   let currentBGM = null;   // 現在再生中のID
   let bgmToken = 0;        // 再生セッション識別用
 
+  const bgmAudioEls = {};   // id -> HTMLAudioElement
+  const bgmMediaNodes = {}; // id -> MediaElementAudioSourceNode
+
+  function getBgmAudio(id){
+    if(!bgmAudioEls[id]){
+      const el = new Audio(BGM_FILES[id]);
+      el.loop = true;
+      el.preload = "auto";
+      bgmAudioEls[id] = el;
+      try {
+        const node = audioCtx.createMediaElementSource(el);
+        node.connect(bgmGain);
+        bgmMediaNodes[id] = node;
+      } catch(e){
+        el.volume = bgmLevel(); // MediaElementSource不可なら素の音量で
+      }
+    }
+    return bgmAudioEls[id];
+  }
+
   function stopBGM(){
     currentBGM = null;
     bgmToken++;
+    Object.values(bgmAudioEls).forEach(el=>{ el.pause(); el.currentTime = 0; });
+    xStopRenderBgm();
+    xSeqStop();
     document.querySelectorAll(".bgm-row").forEach(el=>{
       el.classList.remove("playing");
       el.querySelector(".bgm-btn").classList.remove("is-playing");
@@ -546,6 +1086,20 @@
     const btn = row.querySelector(".bgm-btn");
     btn.classList.add("is-playing");
     btn.textContent = "■ 停止";
+
+    const meta = BGM_LIST.find(b=> b.id === id);
+    if(meta && meta.type === "file"){
+      const el = getBgmAudio(id);
+      applyBgmVolume();
+      el.currentTime = 0;
+      el.play().catch(()=>{});
+      return;
+    }
+    if(meta && meta.type === "engine" && BGM_ENGINES[id]){
+      applyBgmVolume();
+      BGM_ENGINES[id].start();
+      return;
+    }
 
     const pattern = BGM_PATTERNS[id];
     const stepDur = 60 / pattern.tempo / 2; // 8分音符

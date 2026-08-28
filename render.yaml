@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: setool-seboard
+    runtime: static
+    # index.html と bgm/*.mp3 をリポジトリ直下からそのまま配信
+    staticPublishPath: .
+    buildCommand: ""
+    headers:
+      - path: /bgm/*
+        name: Cache-Control
+        value: public, max-age=86400
+      - path: /se/*
+        name: Cache-Control
+        value: public, max-age=86400
+    routes:
+      - type: rewrite
+        source: /
+        destination: /index.html
