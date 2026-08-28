@@ -212,11 +212,25 @@
     box-shadow: 0 3px 0 #b23a72, inset 0 1px 1px rgba(255,255,255,0.3);
   }
   .bgm-btn.is-playing:active{ box-shadow: 0 1px 0 #b23a72; }
+
+  /* ---------- Mode panel (top) ---------- */
+  #modePanel{ padding: 14px 16px; }
+  #modePanel .bgm-volume-row{ margin-bottom: 0; }
 </style>
 </head>
 <body>
 
   <div class="board">
+
+    <section class="panel" id="modePanel">
+      <div class="bgm-volume-row">
+        <span class="bgm-volume-label">効果音でBGM停止</span>
+        <div class="toggle-group" id="seStopBgmToggle">
+          <button class="toggle-btn" data-mode="off">OFF</button>
+          <button class="toggle-btn" data-mode="on">ON</button>
+        </div>
+      </div>
+    </section>
 
     <section class="panel">
       <p class="panel-title"><span class="dot"></span>こうかおん SE</p>
@@ -252,6 +266,8 @@
   const BGM_LEVEL_LOW = 0.12; // SE(0.8)よりはっきり小さく
   const BGM_LEVEL_SAME = SE_LEVEL;
   let bgmVolumeMode = "low"; // "low" or "same"
+  let seStopsBgm = false;    // ON: 効果音を押すとBGMをフェードアウト停止（永続化なし・毎回OFF起動）
+  let bgmFadeTimer = null;
 
   function bgmLevel(){
     return (bgmVolumeMode === "same") ? BGM_LEVEL_SAME : BGM_LEVEL_LOW;
@@ -263,6 +279,33 @@
     Object.keys(bgmAudioEls).forEach(id=>{
       if(!bgmMediaNodes[id]) bgmAudioEls[id].volume = bgmLevel();
     });
+  }
+
+  // BGMバスのゲインを通常値へ戻す（フェードのランプをキャンセル）
+  function resetBgmGain(){
+    if(audioCtx && bgmGain){
+      bgmGain.gain.cancelScheduledValues(audioCtx.currentTime);
+      bgmGain.gain.value = bgmLevel();
+    }
+  }
+  // 進行中のフェード（予約停止＋ランプ）を打ち切って通常状態に戻す
+  function cancelBgmFade(){
+    if(bgmFadeTimer){ clearTimeout(bgmFadeTimer); bgmFadeTimer = null; }
+    resetBgmGain();
+  }
+  // 効果音でBGMを強制フェードアウト→停止（約0.4秒）
+  function fadeOutAndStopBGM(){
+    if(!audioCtx || !bgmGain || !currentBGM) return;
+    const FADE = 0.4, now = audioCtx.currentTime, g = bgmGain.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(Math.max(g.value, 0.0001), now);
+    g.linearRampToValueAtTime(0.0001, now + FADE);
+    if(bgmFadeTimer) clearTimeout(bgmFadeTimer);
+    bgmFadeTimer = setTimeout(()=>{
+      bgmFadeTimer = null;
+      stopBGM();      // 全ソース停止・UI解除・currentBGM=null
+      resetBgmGain(); // 次に手動再生したとき通常音量に戻す
+    }, FADE * 1000 + 30);
   }
 
   function ensureAudio(){
@@ -774,6 +817,7 @@
   function stopBGM(){
     currentBGM = null;
     bgmToken++;
+    if(bgmFadeTimer){ clearTimeout(bgmFadeTimer); bgmFadeTimer = null; }
     Object.values(bgmAudioEls).forEach(el=>{ el.pause(); el.currentTime = 0; });
     xStopRenderBgm();
     xSeqStop();
@@ -782,6 +826,7 @@
 
   function startBGM(id){
     ensureAudio();
+    cancelBgmFade(); // フェード中に別BGMを開始したらランプを打ち切る
     if(currentBGM === id){ stopBGM(); return; }
     stopBGM();
     currentBGM = id;
@@ -827,6 +872,7 @@
     btn.innerHTML = '<span class="icon">'+se.icon+'</span><span class="label">'+se.label+'</span>';
     btn.addEventListener("pointerdown", ()=>{
       ensureAudio();
+      if(seStopsBgm && currentBGM) fadeOutAndStopBGM();
       SE_PLAYERS[se.id]();
       btn.classList.add("is-pressed");
       setTimeout(()=> btn.classList.remove("is-pressed"), 350);
@@ -860,6 +906,21 @@
     });
   });
   refreshVolumeButtons();
+
+  const seStopToggle = document.getElementById("seStopBgmToggle");
+  const seStopButtons = seStopToggle.querySelectorAll(".toggle-btn");
+  function refreshSeStopButtons(){
+    seStopButtons.forEach(btn=>{
+      btn.classList.toggle("active", btn.dataset.mode === (seStopsBgm ? "on" : "off"));
+    });
+  }
+  seStopButtons.forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      seStopsBgm = (btn.dataset.mode === "on");
+      refreshSeStopButtons();
+    });
+  });
+  refreshSeStopButtons();
 
 })();
 </script>
