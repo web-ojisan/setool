@@ -1,1 +1,616 @@
-ok
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>SE BOARD // サウンドボード</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=JetBrains+Mono:wght@400;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0f1019;
+    --bg-vignette: radial-gradient(ellipse at center, #1a1c2c 0%, #0f1019 70%);
+    --panel:#1b1d2e;
+    --panel-light:#242742;
+    --line: rgba(255,255,255,0.06);
+    --accent-cyan:#4ce0d2;
+    --accent-magenta:#ff5ca8;
+    --accent-amber:#ffc857;
+    --text:#f3f3f8;
+    --text-dim:#8b8fa3;
+    --font-display: 'Press Start 2P', monospace;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  *{ box-sizing:border-box; -webkit-tap-highlight-color: transparent; }
+
+  html,body{
+    margin:0; padding:0;
+    background: var(--bg-vignette);
+    color: var(--text);
+    font-family: var(--font-body);
+    min-height:100vh;
+    overscroll-behavior:none;
+  }
+
+  body{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    padding: 20px 14px 40px;
+  }
+
+  /* ---------- Sections ---------- */
+  .board{
+    width:100%;
+    max-width:560px;
+    display:flex;
+    flex-direction:column;
+    gap:26px;
+  }
+
+  section.panel{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    padding: 18px 16px 20px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.03);
+  }
+
+  .panel-title{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin: 0 0 16px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 2px;
+    color: var(--text-dim);
+    text-transform:uppercase;
+  }
+  .panel-title .dot{
+    width:8px; height:8px; border-radius:50%;
+    background: var(--accent-magenta);
+    box-shadow: 0 0 8px var(--accent-magenta);
+  }
+
+  /* ---------- SE grid ---------- */
+  .se-grid{
+    display:grid;
+    grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+    gap: 10px;
+  }
+
+  .se-btn{
+    position:relative;
+    border:none;
+    cursor:pointer;
+    border-radius: 16px;
+    padding: 14px 6px 10px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:6px;
+    font-family: var(--font-body);
+    font-weight:600;
+    font-size: 11px;
+    color: #101223;
+    background: linear-gradient(160deg, var(--btn-c1), var(--btn-c2));
+    box-shadow:
+      0 5px 0 var(--btn-shadow),
+      0 8px 14px rgba(0,0,0,0.4),
+      inset 0 1px 1px rgba(255,255,255,0.5);
+    transition: transform .06s ease, box-shadow .06s ease;
+    user-select:none;
+    overflow:hidden;
+  }
+  .se-btn .icon{ font-size:22px; line-height:1; filter: drop-shadow(0 1px 0 rgba(255,255,255,0.4)); }
+  .se-btn span.label{ letter-spacing: 0.2px; }
+
+  .se-btn.c-cyan{ --btn-c1: #8ff5ec; --btn-c2: var(--accent-cyan); --btn-shadow:#2a9a90; }
+  .se-btn.c-magenta{ --btn-c1: #ffa8cf; --btn-c2: var(--accent-magenta); --btn-shadow:#b23a72; }
+  .se-btn.c-amber{ --btn-c1: #ffe19c; --btn-c2: var(--accent-amber); --btn-shadow:#b3893c; }
+
+  .se-btn:active,
+  .se-btn.is-pressed{
+    transform: translateY(4px);
+    box-shadow:
+      0 1px 0 var(--btn-shadow),
+      0 3px 6px rgba(0,0,0,0.4),
+      inset 0 1px 1px rgba(255,255,255,0.5);
+  }
+
+  .se-btn::after{
+    content:"";
+    position:absolute;
+    inset:0;
+    border-radius: inherit;
+    background: radial-gradient(circle, rgba(255,255,255,0.9) 0%, transparent 60%);
+    opacity:0;
+    transform: scale(0.4);
+    pointer-events:none;
+  }
+  .se-btn.is-pressed::after{
+    animation: burst .35s ease-out;
+  }
+  @keyframes burst{
+    0%{ opacity:0.55; transform:scale(0.3); }
+    100%{ opacity:0; transform:scale(1.6); }
+  }
+
+  /* ---------- BGM volume toggle ---------- */
+  .bgm-volume-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:10px;
+    margin-bottom:14px;
+  }
+  .bgm-volume-label{
+    font-family: var(--font-mono);
+    font-size:11px;
+    color: var(--text-dim);
+    letter-spacing:1px;
+    white-space:nowrap;
+  }
+  .toggle-group{
+    display:flex;
+    background: var(--panel-light);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 3px;
+    gap:3px;
+  }
+  .toggle-btn{
+    border:none;
+    cursor:pointer;
+    font-family: var(--font-mono);
+    font-size:11px;
+    font-weight:600;
+    letter-spacing:0.5px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: transparent;
+    color: var(--text-dim);
+    transition: background .15s ease, color .15s ease;
+    white-space:nowrap;
+  }
+  .toggle-btn.active{
+    background: var(--accent-cyan);
+    color:#101223;
+  }
+
+  /* ---------- BGM list ---------- */
+  .bgm-list{ display:flex; flex-direction:column; gap:10px; }
+
+  .bgm-row{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    background: var(--panel-light);
+    border:1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+  }
+
+  .bgm-info{ flex:1; min-width:0; }
+  .bgm-name{ font-size:13px; font-weight:600; }
+  .bgm-sub{ font-size:11px; color:var(--text-dim); font-family: var(--font-mono); margin-top:2px; }
+
+  .viz{ display:flex; align-items:flex-end; gap:2px; height:16px; width:26px; flex-shrink:0; }
+  .viz i{
+    display:block; width:3px; background: var(--accent-cyan);
+    border-radius:1px; height:20%;
+    opacity:0.35;
+  }
+  .bgm-row.playing .viz i{ opacity:1; animation: bounce 0.9s ease-in-out infinite; }
+  .bgm-row.playing .viz i:nth-child(1){ animation-delay: -0.6s; }
+  .bgm-row.playing .viz i:nth-child(2){ animation-delay: -0.3s; }
+  .bgm-row.playing .viz i:nth-child(3){ animation-delay: -0.9s; }
+  .bgm-row.playing .viz i:nth-child(4){ animation-delay: -0.15s; }
+  @keyframes bounce{
+    0%,100%{ height:20%; }
+    50%{ height:100%; }
+  }
+
+  .bgm-btn{
+    border:none;
+    cursor:pointer;
+    font-family: var(--font-mono);
+    font-weight:600;
+    font-size:11px;
+    letter-spacing:1px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    color:#101223;
+    background: var(--accent-amber);
+    box-shadow: 0 3px 0 #b3893c;
+    transition: transform .06s ease, box-shadow .06s ease;
+    flex-shrink:0;
+  }
+  .bgm-btn:active{ transform: translateY(2px); box-shadow: 0 1px 0 #b3893c; }
+  .bgm-btn.is-playing{ background: var(--accent-magenta); box-shadow: 0 3px 0 #b23a72; }
+
+  /* ---------- Unlock hint ---------- */
+  @media (prefers-reduced-motion: reduce){
+    .bgm-row.playing .viz i{ animation:none; height:70%; }
+  }
+</style>
+</head>
+<body>
+
+  <div class="board">
+
+    <section class="panel">
+      <p class="panel-title"><span class="dot"></span>こうかおん SE</p>
+      <div class="se-grid" id="seGrid"></div>
+    </section>
+
+    <section class="panel">
+      <p class="panel-title"><span class="dot" style="background:var(--accent-cyan); box-shadow:0 0 8px var(--accent-cyan);"></span>BGM ループ</p>
+
+      <div class="bgm-volume-row">
+        <span class="bgm-volume-label">BGM音量</span>
+        <div class="toggle-group" id="bgmVolumeToggle">
+          <button class="toggle-btn" data-mode="low">小さめ</button>
+          <button class="toggle-btn" data-mode="same">SEと同じ</button>
+        </div>
+      </div>
+
+      <div class="bgm-list" id="bgmList"></div>
+    </section>
+
+  </div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ================= Audio Engine ================= */
+  let audioCtx = null;
+  let seGain = null;   // 効果音バス
+  let bgmGain = null;  // BGM専用バス
+
+  const SE_LEVEL = 0.8;
+  const BGM_LEVEL_LOW = 0.35;
+  const BGM_LEVEL_SAME = SE_LEVEL;
+  let bgmVolumeMode = "low"; // "low" or "same"
+
+  function applyBgmVolume(){
+    if(!bgmGain) return;
+    bgmGain.gain.value = (bgmVolumeMode === "same") ? BGM_LEVEL_SAME : BGM_LEVEL_LOW;
+  }
+
+  function ensureAudio(){
+    if(!audioCtx){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      seGain = audioCtx.createGain();
+      seGain.gain.value = SE_LEVEL;
+      seGain.connect(audioCtx.destination);
+
+      bgmGain = audioCtx.createGain();
+      bgmGain.connect(audioCtx.destination);
+      applyBgmVolume();
+    }
+    if(audioCtx.state === "suspended"){
+      audioCtx.resume();
+    }
+  }
+
+  function tone(freq, start, dur, type, gainPeak, dest){
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type || "square";
+    osc.frequency.setValueAtTime(freq, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(gainPeak || 0.3, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    osc.connect(gain);
+    gain.connect(dest || seGain);
+    osc.start(start);
+    osc.stop(start + dur + 0.02);
+    return osc;
+  }
+
+  function sweep(freqFrom, freqTo, start, dur, type, gainPeak, dest){
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = type || "sawtooth";
+    osc.frequency.setValueAtTime(freqFrom, start);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(freqTo,1), start + dur);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(gainPeak || 0.3, start + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    osc.connect(gain);
+    gain.connect(dest || seGain);
+    osc.start(start);
+    osc.stop(start + dur + 0.02);
+  }
+
+  function noiseBurst(start, dur, gainPeak, filterFreq){
+    const bufferSize = audioCtx.sampleRate * dur;
+    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for(let i=0;i<bufferSize;i++){ data[i] = Math.random()*2-1; }
+    const noise = audioCtx.createBufferSource();
+    noise.buffer = buffer;
+    const filter = audioCtx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.setValueAtTime(filterFreq || 2000, start);
+    if(filterFreq){
+      filter.frequency.exponentialRampToValueAtTime(200, start + dur);
+    }
+    const gain = audioCtx.createGain();
+    gain.gain.setValueAtTime(gainPeak || 0.5, start);
+    gain.gain.exponentialRampToValueAtTime(0.001, start + dur);
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(seGain);
+    noise.start(start);
+    noise.stop(start + dur);
+  }
+
+  /* ---------- SE definitions ---------- */
+  const SE_PLAYERS = {
+    coin(){
+      const t = audioCtx.currentTime;
+      tone(988, t, 0.09, "square", 0.35);
+      tone(1319, t+0.08, 0.18, "square", 0.35);
+    },
+    jump(){
+      const t = audioCtx.currentTime;
+      sweep(220, 660, t, 0.16, "square", 0.3);
+    },
+    powerup(){
+      const t = audioCtx.currentTime;
+      [523,659,784,1046].forEach((f,i)=> tone(f, t + i*0.07, 0.12, "square", 0.28));
+    },
+    decide(){
+      const t = audioCtx.currentTime;
+      tone(880, t, 0.09, "square", 0.32);
+      tone(1174, t+0.06, 0.10, "square", 0.28);
+    },
+    cancel(){
+      const t = audioCtx.currentTime;
+      sweep(700, 220, t, 0.18, "square", 0.28);
+    },
+    explosion(){
+      const t = audioCtx.currentTime;
+      noiseBurst(t, 0.5, 0.6, 1800);
+      sweep(140, 40, t, 0.4, "sawtooth", 0.25);
+    },
+    laser(){
+      const t = audioCtx.currentTime;
+      sweep(2200, 220, t, 0.22, "sawtooth", 0.25);
+    },
+    notify(){
+      const t = audioCtx.currentTime;
+      tone(880, t, 0.12, "sine", 0.3);
+      tone(1318, t+0.14, 0.22, "sine", 0.3);
+    },
+    clap(){
+      const t = audioCtx.currentTime;
+      for(let i=0;i<3;i++){ noiseBurst(t + i*0.06, 0.08, 0.4, 4000); }
+    },
+    buzzer(){
+      const t = audioCtx.currentTime;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(110, t);
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.3, t+0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t+0.5);
+      osc.connect(gain);
+      gain.connect(seGain);
+      osc.start(t);
+      osc.stop(t+0.55);
+    },
+    hit(){
+      const t = audioCtx.currentTime;
+      noiseBurst(t, 0.06, 0.5, 3000);
+      tone(180, t, 0.05, "square", 0.3);
+    },
+    heal(){
+      const t = audioCtx.currentTime;
+      sweep(420, 900, t, 0.3, "sine", 0.25);
+      tone(900, t+0.28, 0.15, "sine", 0.2);
+    },
+    warp(){
+      const t = audioCtx.currentTime;
+      sweep(1200, 150, t, 0.22, "sine", 0.25);
+      sweep(150, 900, t+0.2, 0.22, "sine", 0.2);
+    },
+    save(){
+      const t = audioCtx.currentTime;
+      tone(659, t, 0.12, "triangle", 0.25);
+      tone(880, t+0.13, 0.18, "triangle", 0.25);
+    },
+    load(){
+      const t = audioCtx.currentTime;
+      tone(440, t, 0.09, "triangle", 0.25);
+      tone(554, t+0.09, 0.09, "triangle", 0.25);
+      tone(659, t+0.18, 0.18, "triangle", 0.25);
+    },
+    levelup(){
+      const t = audioCtx.currentTime;
+      [523,659,784,1046,1319].forEach((f,i)=> tone(f, t + i*0.06, 0.12, "square", 0.3));
+    },
+    door(){
+      const t = audioCtx.currentTime;
+      noiseBurst(t, 0.15, 0.3, 600);
+      tone(80, t, 0.2, "sine", 0.3);
+    },
+    page(){
+      const t = audioCtx.currentTime;
+      noiseBurst(t, 0.08, 0.35, 6000);
+    },
+    drop(){
+      const t = audioCtx.currentTime;
+      sweep(1200, 400, t, 0.12, "sine", 0.3);
+    },
+    error(){
+      const t = audioCtx.currentTime;
+      tone(200, t, 0.15, "square", 0.3);
+      tone(150, t+0.16, 0.2, "square", 0.3);
+    },
+    select(){
+      const t = audioCtx.currentTime;
+      tone(1046, t, 0.05, "square", 0.25);
+    },
+    countdown(){
+      const t = audioCtx.currentTime;
+      tone(880, t, 0.08, "square", 0.3);
+    },
+    victory(){
+      const t = audioCtx.currentTime;
+      [523,659,784,1046,1319,1568].forEach((f,i)=> tone(f, t + i*0.09, 0.18, "square", 0.32));
+    },
+    hurt(){
+      const t = audioCtx.currentTime;
+      noiseBurst(t, 0.12, 0.45, 2000);
+      sweep(400, 120, t, 0.15, "sawtooth", 0.25);
+    }
+  };
+
+  const SE_LIST = [
+    {id:"coin",      label:"コイン",       icon:"🪙", color:"amber"},
+    {id:"jump",      label:"ジャンプ",     icon:"⤴️", color:"cyan"},
+    {id:"powerup",   label:"パワーアップ", icon:"⭐", color:"magenta"},
+    {id:"decide",    label:"決定",         icon:"✅", color:"cyan"},
+    {id:"cancel",    label:"キャンセル",   icon:"✖️", color:"magenta"},
+    {id:"explosion", label:"爆発",         icon:"💥", color:"amber"},
+    {id:"laser",     label:"レーザー",     icon:"🔫", color:"cyan"},
+    {id:"notify",    label:"通知",         icon:"🔔", color:"magenta"},
+    {id:"clap",      label:"拍手",         icon:"👏", color:"amber"},
+    {id:"buzzer",    label:"ブザー",       icon:"⚠️", color:"cyan"},
+    {id:"hit",       label:"ヒット",       icon:"🥊", color:"magenta"},
+    {id:"hurt",      label:"ダメージ",     icon:"💢", color:"amber"},
+    {id:"heal",      label:"回復",         icon:"💚", color:"cyan"},
+    {id:"warp",      label:"ワープ",       icon:"🌀", color:"magenta"},
+    {id:"save",      label:"セーブ",       icon:"💾", color:"amber"},
+    {id:"load",      label:"ロード",       icon:"📂", color:"cyan"},
+    {id:"levelup",   label:"レベルアップ", icon:"🆙", color:"magenta"},
+    {id:"victory",   label:"勝利",         icon:"🏆", color:"amber"},
+    {id:"door",      label:"ドア",         icon:"🚪", color:"cyan"},
+    {id:"page",      label:"ページ",       icon:"📄", color:"magenta"},
+    {id:"drop",      label:"水滴",         icon:"💧", color:"amber"},
+    {id:"error",     label:"エラー",       icon:"❌", color:"cyan"},
+    {id:"select",    label:"選択",         icon:"👉", color:"magenta"},
+    {id:"countdown", label:"カウント",     icon:"⏱️", color:"amber"}
+  ];
+
+  /* ---------- BGM (simple step-sequenced loops) ---------- */
+  const BGM_PATTERNS = {
+    bgmA: { // アップテンポ
+      tempo: 128,
+      notes: [523,659,784,659, 523,659,784,987, 880,784,659,523, 587,659,784,659],
+      wave: "square"
+    },
+    bgmB: { // チル
+      tempo: 88,
+      notes: [440,523,392,349, 330,392,440,523, 349,392,440,392],
+      wave: "triangle"
+    }
+  };
+
+  const BGM_LIST = [
+    {id:"bgmA", label:"ループA", sub:"アップテンポ / 128 BPM"},
+    {id:"bgmB", label:"ループB", sub:"チル / 88 BPM"}
+  ];
+
+  let currentBGM = null;   // 現在再生中のID
+  let bgmToken = 0;        // 再生セッション識別用
+
+  function stopBGM(){
+    currentBGM = null;
+    bgmToken++;
+    document.querySelectorAll(".bgm-row").forEach(el=>{
+      el.classList.remove("playing");
+      el.querySelector(".bgm-btn").classList.remove("is-playing");
+      el.querySelector(".bgm-btn").textContent = "▶ 再生";
+    });
+  }
+
+  function startBGM(id){
+    ensureAudio();
+    if(currentBGM === id){ stopBGM(); return; }
+    stopBGM();
+    currentBGM = id;
+    const myToken = ++bgmToken;
+
+    const row = document.querySelector('.bgm-row[data-id="'+id+'"]');
+    row.classList.add("playing");
+    const btn = row.querySelector(".bgm-btn");
+    btn.classList.add("is-playing");
+    btn.textContent = "■ 停止";
+
+    const pattern = BGM_PATTERNS[id];
+    const stepDur = 60 / pattern.tempo / 2; // 8分音符
+    let stepIndex = 0;
+
+    function scheduleStep(){
+      if(bgmToken !== myToken) return; // 停止済み
+      const t = audioCtx.currentTime + 0.02;
+      const freq = pattern.notes[stepIndex % pattern.notes.length];
+      tone(freq, t, stepDur * 0.9, pattern.wave, 0.3, bgmGain);
+      stepIndex++;
+      setTimeout(scheduleStep, stepDur * 1000);
+    }
+    scheduleStep();
+  }
+
+  /* ================= UI Build ================= */
+  const seGrid = document.getElementById("seGrid");
+  SE_LIST.forEach(se=>{
+    const btn = document.createElement("button");
+    btn.className = "se-btn c-" + se.color;
+    btn.innerHTML = '<span class="icon">'+se.icon+'</span><span class="label">'+se.label+'</span>';
+    btn.addEventListener("pointerdown", ()=>{
+      ensureAudio();
+      SE_PLAYERS[se.id]();
+      btn.classList.add("is-pressed");
+      setTimeout(()=> btn.classList.remove("is-pressed"), 350);
+    });
+    seGrid.appendChild(btn);
+  });
+
+  const bgmListEl = document.getElementById("bgmList");
+  BGM_LIST.forEach(b=>{
+    const row = document.createElement("div");
+    row.className = "bgm-row";
+    row.dataset.id = b.id;
+    row.innerHTML =
+      '<div class="viz"><i></i><i></i><i></i><i></i></div>' +
+      '<div class="bgm-info">' +
+        '<div class="bgm-name">'+b.label+'</div>' +
+        '<div class="bgm-sub">'+b.sub+'</div>' +
+      '</div>' +
+      '<button class="bgm-btn">▶ 再生</button>';
+    row.querySelector(".bgm-btn").addEventListener("click", ()=> startBGM(b.id));
+    bgmListEl.appendChild(row);
+  });
+
+  const volumeToggle = document.getElementById("bgmVolumeToggle");
+  const volumeButtons = volumeToggle.querySelectorAll(".toggle-btn");
+  function refreshVolumeButtons(){
+    volumeButtons.forEach(btn=>{
+      btn.classList.toggle("active", btn.dataset.mode === bgmVolumeMode);
+    });
+  }
+  volumeButtons.forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      bgmVolumeMode = btn.dataset.mode;
+      refreshVolumeButtons();
+      ensureAudio();
+      applyBgmVolume();
+    });
+  });
+  refreshVolumeButtons();
+
+})();
+</script>
+</body>
+</html>
